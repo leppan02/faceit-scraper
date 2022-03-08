@@ -1,3 +1,4 @@
+import time
 import fastapi
 from functools import lru_cache, partial
 from typing import List, Optional
@@ -35,7 +36,6 @@ class Faceit:
             return None
 
     def parse_player(faceit_data: str,links: set):
-        print(faceit_data["id"])
         faceit_nickname = faceit_data["nickname"]
         steam_id = Faceit.get_steam_id(faceit_nickname)
         if steam_id:
@@ -77,7 +77,10 @@ def generate_html_response(links):
 
 @app.get("/")
 def get_game():
-    return generate_html_response(Faceit.parse_last_game())
+    t = time.time()
+    html = generate_html_response(Faceit.parse_last_game())
+    print(time.time()-t)
+    return html
 
 @app.get("/{game_id}")
 def get_game_id(game_id:str):
