@@ -32,6 +32,7 @@ class Faceit:
             return None
 
     def parse_player(faceit_data: str,links: set):
+        print(faceit_data["id"])
         faceit_nickname = faceit_data["nickname"]
         steam_id = Faceit.get_steam_id(faceit_nickname)
         if steam_id:
@@ -49,4 +50,6 @@ class Faceit:
             p.map(partial(Faceit.parse_player,links=links), players_data)
         return list(links)
 
-    
+    def parse_last_game():
+        data = requests.get(f"https://api.faceit.com/stats/v1/stats/time/users/{'2ca54384-bb1f-4639-b715-626f9a3ac976'}/games/csgo?page=0&size=1").json()
+        return Faceit.parse_game(data[0]["matchId"])
