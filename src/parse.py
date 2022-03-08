@@ -1,78 +1,53 @@
+from functools import lru_cache
+from typing import List, Optional
 import requests
-from typing import Optional, List
 import string
 from multiprocessing.pool import ThreadPool
 
 valid_letters = set(i for i in string.ascii_letters + string.digits+"-+_?^$@!*")
 
-def parse_content(content):
-    ret = []
-    if b"twitch.tv/" in content:
-        for link in content.split(b"twitch.tv/")[1:]:
-            s = ""
-            for i in link.decode("utf8"):
-                if i not in valid_letters:break
-                s+=i
-            if len(s):
-                ret.append("twitch.tv/"+s)
-    return ret
+@lru_cache(100)
+def cached_get(url):
+    return requests.get(url)
 
-class Player:
-    faceit_name = None
-    faceit_id = None
-    steam_id = None
-    twitch = []
-    def __init__(self, faceit_data):
-        self.faceit_id=faceit_data["id"],
-        self.faceit_name=faceit_data["nickname"]
+def parse_content(links: set, url:str):
+    try:
+        content = cached_get(url).content
+        if b"twitch.tv/" in content:
+            for link in content.split(b"twitch.tv/")[1:]:
+                s = ""
+                for i in link.decode("utf8"):
+                    if i not in valid_letters:break
+                    s+=i
+                if len(s):
+                    links.add("twitch.tv/"+s)
+    except:
+        pass
 
-    def __load_steam_id(self):
-        r = requests.get(f"https://api.faceit.com/users/v1/nicknames/{self.faceit_name}")
+class Faceit:
+    def get_steam_id(faceit_nickname: str) -> Optional[str]:
+        r = cached_get(f"https://api.faceit.com/users/v1/nicknames/{faceit_nickname}")
         try:
-            self.steam_id = r.json()["payload"]["platforms"]["steam"]["id64"]
+            return r.json()["payload"]["platforms"]["steam"]["id64"]
         except:
-            pass
-        return self
+            return None
 
-    def load_steam(self):
-        self.__load_steam_id()
-        r = requests.get(f"http://steamcommunity.com/profiles/{self.steam_id}")
-        self.twitch.extend(parse_content(r.content))
-        return self
+    def parse_player(links: set, faceit_data: str):
+        faceit_nickname = faceit_data["nickname"]
+        steam_id = Faceit.get_steam_id(faceit_nickname)
+        if steam_id:
+            parse_content(links, f"http://steamcommunity.com/profiles/{steam_id}")
 
-class FaceitLobby:
-    game_id = None
-    players: List[Player] = []
+    def get_players_data(game_id: str) -> List:
+        data = cached_get(f"https://api.faceit.com/match/v2/match/{game_id}").json()
+        return data["payload"]["teams"]["faction1"]["roster"]+data["payload"]["teams"]["faction2"]["roster"]
 
-    def load_players(self):
-        r = requests.get(f"https://api.faceit.com/match/v2/match/{self.game_id}")
-        print(f"https://api.faceit.com/match/v2/match/{self.game_id}")
-        data = r.json()
+    def parse_game(game_id) -> List:
+        links = set()
+        parse_content(links, f"https://api.faceit.com/match/v2/match/{game_id}")
+        players_data = Faceit.get_players_data(game_id)
         with ThreadPool(10) as p:
-            self.players = p.map(lambda x: Player(x), data["payload"]["teams"]["faction1"]["roster"]+data["payload"]["teams"]["faction2"]["roster"])
-        return self
+            p.map(Faceit.parse_player, links*len(players_data), players_data)
+        return list(links)
+
     
-    def load_steam(self):
-        with ThreadPool(10) as p:
-            p.map(lambda x: x.load_steam(), self.players)
-        return self
-
-    def get_links_from_steam(self):
-        links = []
-        for player in self.players:
-            links.extend(player.twitch)
-        return links
-
-    def get_links_from_faceit(self):
-        r = requests.get(f"https://api.faceit.com/match/v2/match/{self.game_id}")
-        return parse_content(r.content)
-
-    def get_links(self):
-        return self.get_links_from_steam()+self.get_links_from_faceit()
-
-
-    def __init__(self, game_id):
-        self.game_id = game_id
-        self.players: List[Player] = []
-
-
